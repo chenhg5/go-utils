@@ -11,9 +11,13 @@ type SqlTxStruct struct {
 	Tx *sql.Tx
 }
 
+type SqlDBStruct struct {
+	db *sql.DB
+}
+
 var (
-	sqlDBmap        = make(map[string]*sql.DB, 0)
-	SqlDB           *sql.DB
+	sqlDBmap        = make(map[string]SqlDBStruct, 0)
+	SqlDB           SqlDBStruct
 	SqlTxStructPool = sync.Pool{
 		New: func() interface{} {
 			return new(SqlTxStruct)
@@ -32,28 +36,30 @@ type Config struct {
 	MaxOpenConns int
 }
 
-func InitDefaultDB(config Config) {
+func InitDefaultDB(config Config) *SqlDBStruct {
 
 	// 初始化默认连接
 	var err error
-	SqlDB, err = sql.Open("mysql", config.UserName+":"+config.Password+"@tcp("+config.Ip+":"+config.Port+")/"+config.DatabaseName+"?charset="+config.Charset)
+	SqlDB.db, err = sql.Open("mysql", config.UserName+":"+config.Password+"@tcp("+config.Ip+":"+config.Port+")/"+config.DatabaseName+"?charset="+config.Charset)
 
 	if err != nil {
-		SqlDB.Close()
+		SqlDB.db.Close()
 		panic(err.Error())
 	} else {
 
-		sqlDBmap = map[string]*sql.DB{
+		sqlDBmap = map[string]SqlDBStruct{
 			"default": SqlDB,
 		}
 
 		// 设置数据库最大连接 减少timewait 正式环境调大
-		SqlDB.SetMaxIdleConns(config.MaxIdleConns) // 连接池连接数 = mysql最大连接数/2
-		SqlDB.SetMaxOpenConns(config.MaxOpenConns) // 最大打开连接 = mysql最大连接数
+		SqlDB.db.SetMaxIdleConns(config.MaxIdleConns) // 连接池连接数 = mysql最大连接数/2
+		SqlDB.db.SetMaxOpenConns(config.MaxOpenConns) // 最大打开连接 = mysql最大连接数
 	}
+
+	return &SqlDB
 }
 
-func InitCons(cons map[string]Config) {
+func InitCons(cons map[string]Config) *map[string]SqlDBStruct {
 	for k, v := range cons {
 		tempSql, openErr := sql.Open("mysql", v.UserName+":"+v.Password+"@tcp("+v.Ip+":"+v.Port+")/"+v.DatabaseName+"?charset="+v.Charset)
 		if openErr != nil {
@@ -62,13 +68,16 @@ func InitCons(cons map[string]Config) {
 		}
 		tempSql.SetMaxIdleConns(v.MaxIdleConns) // 连接池连接数 = mysql最大连接数/2
 		tempSql.SetMaxOpenConns(v.MaxOpenConns) // 最大打开连接 = mysql最大连接数
-		sqlDBmap[k] = tempSql
+		sqlDBmap[k] = SqlDBStruct{
+			tempSql,
+		}
 	}
+	return &sqlDBmap
 }
 
-func QueryWithConnection(con string, query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
+func (db *SqlDBStruct) QueryWithConnection(con string, query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
 
-	rs, err := sqlDBmap[con].Query(query, args...)
+	rs, err := sqlDBmap[con].db.Query(query, args...)
 
 	if err != nil {
 		if rs != nil {
@@ -121,9 +130,9 @@ func QueryWithConnection(con string, query string, args ...interface{}) ([]map[s
 	return results, rs
 }
 
-func Query(query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
+func (db *SqlDBStruct) Query(query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
 
-	rs, err := sqlDBmap["default"].Query(query, args...)
+	rs, err := db.db.Query(query, args...)
 
 	if err != nil {
 		if rs != nil {
@@ -176,16 +185,16 @@ func Query(query string, args ...interface{}) ([]map[string]interface{}, *sql.Ro
 	return results, rs
 }
 
-func Exec(query string, args ...interface{}) sql.Result {
+func (db *SqlDBStruct) Exec(query string, args ...interface{}) sql.Result {
 
-	rs, err := sqlDBmap["default"].Exec(query, args...)
+	rs, err := db.db.Exec(query, args...)
 	if err != nil {
 		panic(err.Error())
 	}
 	return rs
 }
 
-func BeginTransactionsByLevel() *SqlTxStruct {
+func (db *SqlDBStruct) BeginTransactionsByLevel() *SqlTxStruct {
 
 	//LevelDefault IsolationLevel = iota
 	//LevelReadUncommitted
@@ -202,7 +211,7 @@ func BeginTransactionsByLevel() *SqlTxStruct {
 		SqlTx = new(SqlTxStruct)
 	}
 
-	tx, err := SqlDB.BeginTx(context.Background(),
+	tx, err := db.db.BeginTx(context.Background(),
 		&sql.TxOptions{Isolation: sql.LevelReadUncommitted})
 	if err != nil {
 		panic(err)
@@ -211,8 +220,8 @@ func BeginTransactionsByLevel() *SqlTxStruct {
 	return SqlTx
 }
 
-func BeginTransactions() *SqlTxStruct {
-	tx, err := SqlDB.BeginTx(context.Background(),
+func (db *SqlDBStruct) BeginTransactions() *SqlTxStruct {
+	tx, err := db.db.BeginTx(context.Background(),
 		&sql.TxOptions{Isolation: sql.LevelDefault})
 	if err != nil {
 		panic(err)
@@ -282,24 +291,24 @@ func (SqlTx *SqlTxStruct) Query(query string, args ...interface{}) ([]map[string
 
 type TxFn func(*SqlTxStruct) (error, map[string]interface{})
 
-func WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
+func (db *SqlDBStruct) WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 
-	SqlTx := BeginTransactions()
+	SqlTx := db.BeginTransactions()
 
 	defer func() {
 		if p := recover(); p != nil {
 			// a panic occurred, rollback and repanic
 			SqlTx.Tx.Rollback()
-			PutAnEndToTransaction(SqlTx)
+			db.PutAnEndToTransaction(SqlTx)
 			panic(p)
 		} else if err != nil {
 			// something went wrong, rollback
 			SqlTx.Tx.Rollback()
-			PutAnEndToTransaction(SqlTx)
+			db.PutAnEndToTransaction(SqlTx)
 		} else {
 			// all good, commit
 			err = SqlTx.Tx.Commit()
-			PutAnEndToTransaction(SqlTx)
+			db.PutAnEndToTransaction(SqlTx)
 		}
 	}()
 
@@ -307,7 +316,7 @@ func WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 	return
 }
 
-func PutAnEndToTransaction(SqlTx *SqlTxStruct) {
+func (db *SqlDBStruct) PutAnEndToTransaction(SqlTx *SqlTxStruct) {
 	SqlTxStructPool.Put(SqlTx)
 }
 
