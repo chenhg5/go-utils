@@ -14,7 +14,7 @@ type SqlTxStruct struct {
 var (
 	sqlDBmap        = make(map[string]*sql.DB, 0)
 	SqlDB           *sql.DB
-	SqlTxStructPool = &sync.Pool{
+	SqlTxStructPool = sync.Pool{
 		New: func() interface{} {
 			return new(SqlTxStruct)
 		},
