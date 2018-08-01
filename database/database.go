@@ -205,9 +205,12 @@ func (db *SqlDBStruct) BeginTransactionsByLevel() *SqlTxStruct {
 	//LevelSerializable
 	//LevelLinearizable
 
-	var SqlTx *SqlTxStruct
-	SqlTx = SqlTxStructPool.Get().(*SqlTxStruct)
-	if SqlTx == nil {
+	var (
+		SqlTx *SqlTxStruct
+		ok    bool
+	)
+
+	if SqlTx, ok = SqlTxStructPool.Get().(*SqlTxStruct); !ok {
 		SqlTx = new(SqlTxStruct)
 	}
 
@@ -227,9 +230,12 @@ func (db *SqlDBStruct) BeginTransactions() *SqlTxStruct {
 		panic(err)
 	}
 
-	var SqlTx *SqlTxStruct
-	SqlTx = SqlTxStructPool.Get().(*SqlTxStruct)
-	if SqlTx == nil {
+	var (
+		SqlTx *SqlTxStruct
+		ok    bool
+	)
+
+	if SqlTx, ok = SqlTxStructPool.Get().(*SqlTxStruct); !ok {
 		SqlTx = new(SqlTxStruct)
 	}
 
