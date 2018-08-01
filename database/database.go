@@ -290,16 +290,16 @@ func WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 		if p := recover(); p != nil {
 			// a panic occurred, rollback and repanic
 			SqlTx.Tx.Rollback()
-			PutToEndOfTransaction(SqlTx)
+			PutAnEndToTransaction(SqlTx)
 			panic(p)
 		} else if err != nil {
 			// something went wrong, rollback
 			SqlTx.Tx.Rollback()
-			PutToEndOfTransaction(SqlTx)
+			PutAnEndToTransaction(SqlTx)
 		} else {
 			// all good, commit
 			err = SqlTx.Tx.Commit()
-			PutToEndOfTransaction(SqlTx)
+			PutAnEndToTransaction(SqlTx)
 		}
 	}()
 
@@ -307,7 +307,7 @@ func WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 	return
 }
 
-func PutToEndOfTransaction(SqlTx *SqlTxStruct) {
+func PutAnEndToTransaction(SqlTx *SqlTxStruct) {
 	SqlTxStructPool.Put(SqlTx)
 }
 
