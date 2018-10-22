@@ -13,16 +13,16 @@ type AlidayuSmSType struct {
 	SMS_TEMPLATE_CODE  string
 }
 
-var Alidayu AlidayuSmSType
-
-func InitAlidayu(key string, secret string, sign string, code string)  {
-	Alidayu.APP_KEY = key
-	Alidayu.APP_SECRET = secret
-	Alidayu.SMS_FREE_SIGN_NAME = sign
-	Alidayu.SMS_TEMPLATE_CODE = code
+func InitAlidayu(key string, secret string, sign string, code string) *AlidayuSmSType {
+	var alidayu AlidayuSmSType
+	alidayu.APP_KEY = key
+	alidayu.APP_SECRET = secret
+	alidayu.SMS_FREE_SIGN_NAME = sign
+	alidayu.SMS_TEMPLATE_CODE = code
+	return &alidayu
 }
 
-func (dayusms AlidayuSmSType) SendAlidayuSMS(phone string, host string) bool {
+func (dayusms *AlidayuSmSType) SendAlidayuSMS(phone string, host string) bool {
 	client := dayu.NewTopClient(dayusms.APP_KEY, dayusms.APP_SECRET)
 	req := request.NewAlibabaAliqinFcSmsNumSendRequest()
 	req.SmsFreeSignName = dayusms.SMS_FREE_SIGN_NAME

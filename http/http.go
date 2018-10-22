@@ -11,6 +11,8 @@ import (
 	"mime/multipart"
 )
 
+// PUT/DELETE/OPTION/HEAD/POST/GET/FormPost/FormGet/Json
+
 func MakePostReq(url string, postData map[string]interface{}, contentType string) (map[string]interface{}, error) {
 	var data io.Reader
 	jsonData ,jsonErr := json.Marshal(postData)
