@@ -1,11 +1,11 @@
 package mysql
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"utils/database/performer"
-	"context"
-	"errors"
 )
 
 type Tx struct {
@@ -44,7 +44,7 @@ func InitDefaultDB(config Config) *DB {
 	SqlDB.db, err = sql.Open("mysql", config.UserName+":"+config.Password+"@tcp("+config.Ip+":"+config.Port+")/"+config.DatabaseName+"?charset="+config.Charset)
 
 	if err != nil {
-		SqlDB.db.Close()
+		_ = SqlDB.db.Close()
 		panic(err.Error())
 	} else {
 
@@ -82,7 +82,7 @@ func (db *DB) QueryWithConnection(con string, query string, args ...interface{})
 
 	if err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
@@ -91,7 +91,7 @@ func (db *DB) QueryWithConnection(con string, query string, args ...interface{})
 
 	if colErr != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(colErr)
 	}
@@ -99,7 +99,7 @@ func (db *DB) QueryWithConnection(con string, query string, args ...interface{})
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
@@ -113,7 +113,7 @@ func (db *DB) QueryWithConnection(con string, query string, args ...interface{})
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
+			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -123,11 +123,11 @@ func (db *DB) QueryWithConnection(con string, query string, args ...interface{})
 	}
 	if err := rs.Err(); err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
-	rs.Close()
+	_ = rs.Close()
 	return results, rs
 }
 
@@ -137,7 +137,7 @@ func (db *DB) Query(query string, args ...interface{}) ([]map[string]interface{}
 
 	if err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
@@ -146,7 +146,7 @@ func (db *DB) Query(query string, args ...interface{}) ([]map[string]interface{}
 
 	if colErr != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(colErr)
 	}
@@ -154,7 +154,7 @@ func (db *DB) Query(query string, args ...interface{}) ([]map[string]interface{}
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
@@ -168,7 +168,7 @@ func (db *DB) Query(query string, args ...interface{}) ([]map[string]interface{}
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
+			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -178,11 +178,11 @@ func (db *DB) Query(query string, args ...interface{}) ([]map[string]interface{}
 	}
 	if err := rs.Err(); err != nil {
 		if rs != nil {
-			rs.Close()
+			_ = rs.Close()
 		}
 		panic(err)
 	}
-	rs.Close()
+	_ = rs.Close()
 	return results, rs
 }
 
@@ -257,13 +257,13 @@ func (SqlTx *Tx) Query(query string, args ...interface{}) ([]map[string]interfac
 	col, colErr := rs.Columns()
 
 	if colErr != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(colErr)
 	}
 
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(err)
 	}
 
@@ -276,7 +276,7 @@ func (SqlTx *Tx) Query(query string, args ...interface{}) ([]map[string]interfac
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
+			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -285,7 +285,7 @@ func (SqlTx *Tx) Query(query string, args ...interface{}) ([]map[string]interfac
 		results = append(results, result)
 	}
 	if err := rs.Err(); err != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(err)
 	}
 	return results, nil
@@ -300,12 +300,12 @@ func (db *DB) WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 	defer func() {
 		if p := recover(); p != nil {
 			// a panic occurred, rollback and repanic
-			SqlTx.Tx.Rollback()
+			_ = SqlTx.Tx.Rollback()
 			db.PutAnEndToTransaction(SqlTx)
 			panic(p)
 		} else if err != nil {
 			// something went wrong, rollback
-			SqlTx.Tx.Rollback()
+			_ = SqlTx.Tx.Rollback()
 			db.PutAnEndToTransaction(SqlTx)
 		} else {
 			// all good, commit

@@ -3,159 +3,76 @@ package database
 import (
 	"context"
 	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
-	"sync"
-	"errors"
+	"github.com/go-sql-driver/mysql"
+	"time"
 )
 
-type SqlTxStruct struct {
+type SqlTx struct {
 	Tx *sql.Tx
 }
 
-type SqlDBStruct struct {
+type SqlDB struct {
 	db *sql.DB
 }
 
-var (
-	sqlDBmap        = make(map[string]SqlDBStruct, 0)
-	SqlDB           SqlDBStruct
-	SqlTxStructPool = sync.Pool{
-		New: func() interface{} {
-			return new(SqlTxStruct)
-		},
-	}
-)
+var sqlDB SqlDB
 
 type Config struct {
-	UserName     string
-	Password     string
-	Port         string
-	Ip           string
-	DatabaseName string
-	Charset      string
-	MaxIdleConns int
-	MaxOpenConns int
+	mysql.Config
+	MaxIdleConn int
+	MaxOpenConn int
+	MaxLifetime int
 }
 
-func InitDefaultDB(config Config) *SqlDBStruct {
+func (c *Config) FormatDSN() string {
+	return c.Config.FormatDSN()
+}
+
+func InitDefaultDB(config Config) *SqlDB {
+
+	if config.DBName == "" {
+		panic("empty database name")
+	}
 
 	// 初始化默认连接
 	var err error
-	SqlDB.db, err = sql.Open("mysql", config.UserName+":"+config.Password+"@tcp("+config.Ip+":"+config.Port+")/"+config.DatabaseName+"?charset="+config.Charset)
+	sqlDB.db, err = sql.Open("mysql", config.FormatDSN())
 
 	if err != nil {
-		SqlDB.db.Close()
+		_ = sqlDB.db.Close()
 		panic(err.Error())
 	} else {
+		// 设置数据库最大连接 减少 time wait 正式环境调大
+		sqlDB.db.SetMaxIdleConns(config.MaxIdleConn) // 连接池连接数 = mysql最大连接数/2
+		sqlDB.db.SetMaxOpenConns(config.MaxOpenConn) // 最大打开连接 = mysql最大连接数
 
-		sqlDBmap = map[string]SqlDBStruct{
-			"default": SqlDB,
-		}
-
-		// 设置数据库最大连接 减少timewait 正式环境调大
-		SqlDB.db.SetMaxIdleConns(config.MaxIdleConns) // 连接池连接数 = mysql最大连接数/2
-		SqlDB.db.SetMaxOpenConns(config.MaxOpenConns) // 最大打开连接 = mysql最大连接数
+		// 设置链接重置时间
+		sqlDB.db.SetConnMaxLifetime(time.Duration(config.MaxLifetime) * time.Second)
 	}
 
-	return &SqlDB
+	return &sqlDB
 }
 
-func InitCons(cons map[string]Config) *map[string]SqlDBStruct {
-	for k, v := range cons {
-		tempSql, openErr := sql.Open("mysql", v.UserName+":"+v.Password+"@tcp("+v.Ip+":"+v.Port+")/"+v.DatabaseName+"?charset="+v.Charset)
-		if openErr != nil {
-			tempSql.Close()
-			panic(openErr.Error())
-		}
-		tempSql.SetMaxIdleConns(v.MaxIdleConns) // 连接池连接数 = mysql最大连接数/2
-		tempSql.SetMaxOpenConns(v.MaxOpenConns) // 最大打开连接 = mysql最大连接数
-		sqlDBmap[k] = SqlDBStruct{
-			tempSql,
-		}
-	}
-	return &sqlDBmap
-}
-
-func (db *SqlDBStruct) QueryWithConnection(con string, query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
-
-	rs, err := sqlDBmap[con].db.Query(query, args...)
-
-	if err != nil {
-		if rs != nil {
-			rs.Close()
-		}
-		panic(err)
-	}
-
-	col, colErr := rs.Columns()
-
-	if colErr != nil {
-		if rs != nil {
-			rs.Close()
-		}
-		panic(colErr)
-	}
-
-	typeVal, err := rs.ColumnTypes()
-	if err != nil {
-		if rs != nil {
-			rs.Close()
-		}
-		panic(err)
-	}
-
-	results := make([]map[string]interface{}, 0)
-
-	for rs.Next() {
-		var colVar = make([]interface{}, len(col))
-		for i := 0; i < len(col); i++ {
-			SetColVarType(&colVar, i, typeVal[i].DatabaseTypeName())
-		}
-		result := make(map[string]interface{})
-		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
-			panic(scanErr)
-		}
-		for j := 0; j < len(col); j++ {
-			SetResultValue(&result, col[j], colVar[j], typeVal[j].DatabaseTypeName())
-		}
-		results = append(results, result)
-	}
-	if err := rs.Err(); err != nil {
-		if rs != nil {
-			rs.Close()
-		}
-		panic(err)
-	}
-	rs.Close()
-	return results, rs
-}
-
-func (db *SqlDBStruct) Query(query string, args ...interface{}) ([]map[string]interface{}, *sql.Rows) {
+func (db *SqlDB) Query(query string, args ...interface{}) []map[string]interface{} {
 
 	rs, err := db.db.Query(query, args...)
 
-	if err != nil {
-		if rs != nil {
-			rs.Close()
-		}
+	if err != nil || rs == nil {
 		panic(err)
 	}
+
+	defer func() {
+		_ = rs.Close()
+	}()
 
 	col, colErr := rs.Columns()
 
 	if colErr != nil {
-		if rs != nil {
-			rs.Close()
-		}
 		panic(colErr)
 	}
 
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
-		if rs != nil {
-			rs.Close()
-		}
 		panic(err)
 	}
 
@@ -168,7 +85,7 @@ func (db *SqlDBStruct) Query(query string, args ...interface{}) ([]map[string]in
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
+			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -177,25 +94,28 @@ func (db *SqlDBStruct) Query(query string, args ...interface{}) ([]map[string]in
 		results = append(results, result)
 	}
 	if err := rs.Err(); err != nil {
-		if rs != nil {
-			rs.Close()
-		}
 		panic(err)
 	}
-	rs.Close()
-	return results, rs
+	return results
 }
 
-func (db *SqlDBStruct) Exec(query string, args ...interface{}) sql.Result {
+func (db *SqlDB) Exec(query string, args ...interface{}) (sql.Result, int64) {
 
 	rs, err := db.db.Exec(query, args...)
 	if err != nil {
-		panic(err.Error())
+		panic(err)
 	}
-	return rs
+
+	rows, execError := rs.RowsAffected()
+
+	if execError != nil {
+		panic(execError)
+	}
+
+	return rs, rows
 }
 
-func (db *SqlDBStruct) BeginTransactionsByLevel() *SqlTxStruct {
+func (db *SqlDB) BeginTransactionsByLevel() *SqlTx {
 
 	//LevelDefault IsolationLevel = iota
 	//LevelReadUncommitted
@@ -206,58 +126,44 @@ func (db *SqlDBStruct) BeginTransactionsByLevel() *SqlTxStruct {
 	//LevelSerializable
 	//LevelLinearizable
 
-	var (
-		SqlTx *SqlTxStruct
-		ok    bool
-	)
-
-	if SqlTx, ok = SqlTxStructPool.Get().(*SqlTxStruct); !ok {
-		SqlTx = new(SqlTxStruct)
-	}
-
 	tx, err := db.db.BeginTx(context.Background(),
 		&sql.TxOptions{Isolation: sql.LevelReadUncommitted})
 	if err != nil {
 		panic(err)
 	}
-	(*SqlTx).Tx = tx
-	return SqlTx
+	return new(SqlTx).WithTx(tx)
 }
 
-func (db *SqlDBStruct) BeginTransactions() *SqlTxStruct {
+func (db *SqlDB) BeginTransactions() *SqlTx {
 	tx, err := db.db.BeginTx(context.Background(),
 		&sql.TxOptions{Isolation: sql.LevelDefault})
 	if err != nil {
 		panic(err)
 	}
+	return new(SqlTx).WithTx(tx)
+}
 
-	var (
-		SqlTx *SqlTxStruct
-		ok    bool
-	)
-
-	if SqlTx, ok = SqlTxStructPool.Get().(*SqlTxStruct); !ok {
-		SqlTx = new(SqlTxStruct)
+func (SqlTx *SqlTx) Exec(query string, args ...interface{}) (sql.Result, int64) {
+	rs, err := SqlTx.Tx.Exec(query, args...)
+	if err != nil {
+		panic(err)
 	}
 
-	(*SqlTx).Tx = tx
+	rows, execError := rs.RowsAffected()
+
+	if execError != nil {
+		panic(execError)
+	}
+
+	return rs, rows
+}
+
+func (SqlTx *SqlTx) WithTx(tx *sql.Tx) *SqlTx {
+	SqlTx.Tx = tx
 	return SqlTx
 }
 
-func (SqlTx *SqlTxStruct) Exec(query string, args ...interface{}) (sql.Result, error) {
-	rs, err := SqlTx.Tx.Exec(query, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	if rows, execError := rs.RowsAffected(); execError != nil || rows == 0 {
-		return nil, errors.New("exec fail")
-	}
-
-	return rs, nil
-}
-
-func (SqlTx *SqlTxStruct) Query(query string, args ...interface{}) ([]map[string]interface{}, error) {
+func (SqlTx *SqlTx) Query(query string, args ...interface{}) ([]map[string]interface{}, error) {
 	rs, err := SqlTx.Tx.Query(query, args...)
 
 	if err != nil {
@@ -267,13 +173,13 @@ func (SqlTx *SqlTxStruct) Query(query string, args ...interface{}) ([]map[string
 	col, colErr := rs.Columns()
 
 	if colErr != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(colErr)
 	}
 
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(err)
 	}
 
@@ -286,7 +192,7 @@ func (SqlTx *SqlTxStruct) Query(query string, args ...interface{}) ([]map[string
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			rs.Close()
+			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -295,41 +201,34 @@ func (SqlTx *SqlTxStruct) Query(query string, args ...interface{}) ([]map[string
 		results = append(results, result)
 	}
 	if err := rs.Err(); err != nil {
-		rs.Close()
+		_ = rs.Close()
 		panic(err)
 	}
 	return results, nil
 }
 
-type TxFn func(*SqlTxStruct) (error, map[string]interface{})
+type TxFn func(*SqlTx) (error, map[string]interface{})
 
-func (db *SqlDBStruct) WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
+func (db *SqlDB) WithTransaction(fn TxFn) (err error, res map[string]interface{}) {
 
 	SqlTx := db.BeginTransactions()
 
 	defer func() {
 		if p := recover(); p != nil {
 			// a panic occurred, rollback and repanic
-			SqlTx.Tx.Rollback()
-			db.PutAnEndToTransaction(SqlTx)
+			_ = SqlTx.Tx.Rollback()
 			panic(p)
 		} else if err != nil {
 			// something went wrong, rollback
-			SqlTx.Tx.Rollback()
-			db.PutAnEndToTransaction(SqlTx)
+			_ = SqlTx.Tx.Rollback()
 		} else {
 			// all good, commit
 			err = SqlTx.Tx.Commit()
-			db.PutAnEndToTransaction(SqlTx)
 		}
 	}()
 
 	err, res = fn(SqlTx)
 	return
-}
-
-func (db *SqlDBStruct) PutAnEndToTransaction(SqlTx *SqlTxStruct) {
-	SqlTxStructPool.Put(SqlTx)
 }
 
 func SetColVarType(colVar *[]interface{}, i int, typeName string) {
