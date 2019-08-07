@@ -29,7 +29,7 @@ type Sql struct {
 	fields    []string
 	table     string
 	wheres    []Where
-	leftjoins []Join
+	leftJoins []Join
 	args      []interface{}
 	order     string
 	offset    string
@@ -47,7 +47,7 @@ var SqlPool = sync.Pool{
 			table:     "",
 			args:      make([]interface{}, 0),
 			wheres:    make([]Where, 0),
-			leftjoins: make([]Join, 0),
+			leftJoins: make([]Join, 0),
 			updateRaw: make([]RawUpdate, 0),
 			whereRaw:  "",
 			tx:        nil,
@@ -179,7 +179,7 @@ func (sql *Sql) UpdateRaw(raw string, args ...interface{}) *Sql {
 }
 
 func (sql *Sql) LeftJoin(table string, fieldA string, operation string, fieldB string) *Sql {
-	sql.leftjoins = append(sql.leftjoins, Join{
+	sql.leftJoins = append(sql.leftJoins, Join{
 		fieldA:    fieldA,
 		fieldB:    fieldB,
 		table:     table,
@@ -342,11 +342,11 @@ func (sql *Sql) getOrderBy() string {
 }
 
 func (sql *Sql) getJoins() string {
-	if len(sql.leftjoins) == 0 {
+	if len(sql.leftJoins) == 0 {
 		return ""
 	}
 	joins := ""
-	for _, join := range sql.leftjoins {
+	for _, join := range sql.leftJoins {
 		joins += " left join " + join.table + " on " + join.fieldA + " " + join.operation + " " + join.fieldB + " "
 	}
 	return joins
@@ -360,7 +360,7 @@ func (sql *Sql) getFields() string {
 		return "count(*)"
 	}
 	fields := ""
-	if len(sql.leftjoins) == 0 {
+	if len(sql.leftJoins) == 0 {
 		for _, field := range sql.fields {
 			fieldArr := strings.Split(field, " as")
 			if len(fieldArr) == 1 {
@@ -481,7 +481,7 @@ func (sql *Sql) empty() *Sql {
 	sql.args = make([]interface{}, 0)
 	sql.table = ""
 	sql.wheres = make([]Where, 0)
-	sql.leftjoins = make([]Join, 0)
+	sql.leftJoins = make([]Join, 0)
 	return sql
 }
 
@@ -489,7 +489,7 @@ func RecycleSql(sql *Sql) {
 	sql.fields = make([]string, 0)
 	sql.table = ""
 	sql.wheres = make([]Where, 0)
-	sql.leftjoins = make([]Join, 0)
+	sql.leftJoins = make([]Join, 0)
 	sql.args = make([]interface{}, 0)
 	sql.order = ""
 	sql.offset = ""

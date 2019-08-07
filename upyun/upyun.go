@@ -1,14 +1,7 @@
 package upyun
 
 import (
-	"bytes"
-	"fmt"
 	"github.com/upyun/go-sdk/upyun"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"strings"
 )
 
 var up *upyun.UpYun
@@ -59,26 +52,3 @@ const (
 	SpecificationTwo   = "1514x1514a44a372"
 	SpecificationThree = "1020x1020a0a230"
 )
-
-func saveFile(url string) string {
-	path := strings.Split(url, "/")
-	var name string
-	if len(path) > 1 {
-		name = path[len(path)-1]
-	}
-	out, _ := os.Create("./tmp/" + name)
-	defer func() {
-		if err := out.Close(); err != nil {
-			fmt.Println("err")
-		}
-	}()
-	resp, _ := http.Get(url)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Println("err")
-		}
-	}()
-	pix, _ := ioutil.ReadAll(resp.Body)
-	_, _ = io.Copy(out, bytes.NewReader(pix))
-	return name
-}
