@@ -2,23 +2,23 @@ package email
 
 import (
 	"crypto/tls"
-	"net"
-	"net/smtp"
 	"fmt"
+	"net"
 	"net/mail"
+	"net/smtp"
 )
 
 type EmailerType struct {
 	ServerName string
-	Username string
-	Password string
+	Username   string
+	Password   string
 }
 
 var Emailer EmailerType
 
 // 初始化
 // servername 如：smtp.exmail.qq.com:465
-func InitEmailer(servername string, username string, password string)  {
+func InitEmailer(servername string, username string, password string) {
 	Emailer.Password = password
 	Emailer.Username = username
 	Emailer.ServerName = servername
@@ -45,8 +45,8 @@ func (emailer EmailerType) SendToMail(toAddr string, subject string, body string
 		return
 	}
 	// set To && From address, note that from address must be same as authorization user.
-	from := mail.Address{"", emailer.Username}
-	to := mail.Address{"", toAddr}
+	from := mail.Address{Name: "", Address: emailer.Username}
+	to := mail.Address{Name: "", Address: toAddr}
 	err = smtpClient.Mail(from.Address)
 	if err != nil {
 		return

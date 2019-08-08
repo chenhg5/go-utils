@@ -85,7 +85,6 @@ func (db *SqlDB) Query(query string, args ...interface{}) []map[string]interface
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -166,20 +165,22 @@ func (SqlTx *SqlTx) WithTx(tx *sql.Tx) *SqlTx {
 func (SqlTx *SqlTx) Query(query string, args ...interface{}) ([]map[string]interface{}, error) {
 	rs, err := SqlTx.Tx.Query(query, args...)
 
-	if err != nil {
+	if err != nil || rs == nil {
 		return nil, err
 	}
+
+	defer func() {
+		_ = rs.Close()
+	}()
 
 	col, colErr := rs.Columns()
 
 	if colErr != nil {
-		_ = rs.Close()
 		panic(colErr)
 	}
 
 	typeVal, err := rs.ColumnTypes()
 	if err != nil {
-		_ = rs.Close()
 		panic(err)
 	}
 
@@ -192,7 +193,6 @@ func (SqlTx *SqlTx) Query(query string, args ...interface{}) ([]map[string]inter
 		}
 		result := make(map[string]interface{})
 		if scanErr := rs.Scan(colVar...); scanErr != nil {
-			_ = rs.Close()
 			panic(scanErr)
 		}
 		for j := 0; j < len(col); j++ {
@@ -200,10 +200,11 @@ func (SqlTx *SqlTx) Query(query string, args ...interface{}) ([]map[string]inter
 		}
 		results = append(results, result)
 	}
+
 	if err := rs.Err(); err != nil {
-		_ = rs.Close()
 		panic(err)
 	}
+
 	return results, nil
 }
 
